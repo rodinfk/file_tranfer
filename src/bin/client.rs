@@ -2,10 +2,10 @@ use anyhow::{Context, bail};
 use clap::Parser;
 use file_transfer::{
     DEFAULT_IDLE_TIMEOUT_SECS, DEFAULT_MAX_FILE_SIZE, DEFAULT_TRANSFER_TIMEOUT_SECS,
-    MAX_TOKEN_LENGTH, MIN_TOKEN_LENGTH, STATUS_AUTH_FAILED, STATUS_BUSY, STATUS_OK,
-    STATUS_REJECTED, encode_header, validate_file_name,
+    STATUS_AUTH_FAILED, STATUS_BUSY, STATUS_OK, STATUS_REJECTED, access_token, encode_header,
+    validate_file_name,
 };
-use std::{env, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncWriteExt},
@@ -36,11 +36,10 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     init_logging();
     let args = Args::parse();
-    let token = read_token()?;
-    send(args, token).await
+    send(args, access_token()?).await
 }
 
-async fn send(args: Args, token: Vec<u8>) -> anyhow::Result<()> {
+async fn send(args: Args, token: &[u8]) -> anyhow::Result<()> {
     let mut file = File::open(&args.file)
         .await
         .with_context(|| format!("cannot open file: {}", args.file.display()))?;
@@ -77,7 +76,7 @@ async fn send(args: Args, token: Vec<u8>) -> anyhow::Result<()> {
 
     let status = timeout(idle_timeout, async {
         stream.write_u16(token.len() as u16).await?;
-        stream.write_all(&token).await?;
+        stream.write_all(token).await?;
         let status = stream.read_u8().await?;
         anyhow::Ok(status)
     })
@@ -128,18 +127,6 @@ fn check_status(status: u8, phase: &str, rejected_message: &str) -> anyhow::Resu
         STATUS_REJECTED => bail!("{phase}: {rejected_message}"),
         status => bail!("{phase}: server returned unknown status {status}"),
     }
-}
-
-fn read_token() -> anyhow::Result<Vec<u8>> {
-    let token = env::var("FILE_TRANSFER_TOKEN")
-        .context("set FILE_TRANSFER_TOKEN in the environment on both client and server")?;
-    let bytes = token.into_bytes();
-    if !(MIN_TOKEN_LENGTH..=MAX_TOKEN_LENGTH).contains(&bytes.len()) {
-        bail!(
-            "FILE_TRANSFER_TOKEN must contain between {MIN_TOKEN_LENGTH} and {MAX_TOKEN_LENGTH} UTF-8 bytes"
-        );
-    }
-    Ok(bytes)
 }
 
 fn init_logging() {

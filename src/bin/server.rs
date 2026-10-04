@@ -3,10 +3,10 @@ use clap::Parser;
 use file_transfer::{
     DEFAULT_IDLE_TIMEOUT_SECS, DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_FILE_SIZE,
     DEFAULT_TRANSFER_TIMEOUT_SECS, MAX_NAME_LENGTH, MAX_TOKEN_LENGTH, MIN_TOKEN_LENGTH,
-    STATUS_AUTH_FAILED, STATUS_BUSY, STATUS_OK, STATUS_REJECTED, validate_file_name,
+    STATUS_AUTH_FAILED, STATUS_BUSY, STATUS_OK, STATUS_REJECTED, access_token, validate_file_name,
 };
 use std::{
-    env, io,
+    io,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
@@ -64,7 +64,7 @@ struct Config {
 async fn main() -> anyhow::Result<()> {
     init_logging();
     let args = Args::parse();
-    let token = read_token()?;
+    let token = access_token()?;
     fs::create_dir_all(&args.output_dir)
         .await
         .with_context(|| {
@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let config = Config {
-        token: token.into(),
+        token: Arc::from(token),
         output_dir: Arc::new(args.output_dir),
         max_file_size: args.max_file_size,
         idle_timeout: Duration::from_secs(args.idle_timeout_secs),
@@ -378,18 +378,6 @@ async fn reject_with_status(stream: &mut TcpStream, status: u8, idle_timeout: Du
     if let Err(error) = send_status(stream, status, idle_timeout).await {
         warn!(%error, "could not send protocol status to client");
     }
-}
-
-fn read_token() -> anyhow::Result<Vec<u8>> {
-    let token = env::var("FILE_TRANSFER_TOKEN")
-        .context("set FILE_TRANSFER_TOKEN in the environment on both client and server")?;
-    let bytes = token.into_bytes();
-    if !(MIN_TOKEN_LENGTH..=MAX_TOKEN_LENGTH).contains(&bytes.len()) {
-        bail!(
-            "FILE_TRANSFER_TOKEN must contain between {MIN_TOKEN_LENGTH} and {MAX_TOKEN_LENGTH} UTF-8 bytes"
-        );
-    }
-    Ok(bytes)
 }
 
 fn init_logging() {

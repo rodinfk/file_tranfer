@@ -1,8 +1,11 @@
 use std::io;
 
+const ACCESS_TOKEN_PLACEHOLDER: &str = "change-this-token-before-use";
+
 pub const MAX_NAME_LENGTH: usize = 255;
 pub const MAX_TOKEN_LENGTH: usize = 128;
 pub const MIN_TOKEN_LENGTH: usize = 16;
+pub const ACCESS_TOKEN: &str = "my-local-test-token-2026";
 pub const DEFAULT_MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024;
 pub const DEFAULT_MAX_CONNECTIONS: usize = 32;
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 30;
@@ -11,6 +14,19 @@ pub const STATUS_OK: u8 = 0;
 pub const STATUS_AUTH_FAILED: u8 = 1;
 pub const STATUS_BUSY: u8 = 2;
 pub const STATUS_REJECTED: u8 = 3;
+
+pub fn access_token() -> io::Result<&'static [u8]> {
+    let token = ACCESS_TOKEN.as_bytes();
+    if ACCESS_TOKEN == ACCESS_TOKEN_PLACEHOLDER
+        || !(MIN_TOKEN_LENGTH..=MAX_TOKEN_LENGTH).contains(&token.len())
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "replace ACCESS_TOKEN in src/lib.rs with a value of 16-128 UTF-8 bytes",
+        ));
+    }
+    Ok(token)
+}
 
 pub fn encode_header(name: &str, size: u64) -> io::Result<Vec<u8>> {
     let name = name.as_bytes();
