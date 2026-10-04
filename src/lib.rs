@@ -1,8 +1,16 @@
 use std::io;
-pub mod poller;
 
-const MAX_NAME_LENGTH: usize = 255;
+pub const MAX_NAME_LENGTH: usize = 255;
+pub const MAX_TOKEN_LENGTH: usize = 128;
+pub const MIN_TOKEN_LENGTH: usize = 16;
+pub const DEFAULT_MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024;
+pub const DEFAULT_MAX_CONNECTIONS: usize = 32;
+pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 30;
+pub const DEFAULT_TRANSFER_TIMEOUT_SECS: u64 = 3600;
 pub const STATUS_OK: u8 = 0;
+pub const STATUS_AUTH_FAILED: u8 = 1;
+pub const STATUS_BUSY: u8 = 2;
+pub const STATUS_REJECTED: u8 = 3;
 
 pub fn encode_header(name: &str, size: u64) -> io::Result<Vec<u8>> {
     let name = name.as_bytes();
@@ -52,9 +60,67 @@ pub fn parse_header(buffer: &[u8]) -> io::Result<Option<(String, u64, usize)>> {
     Ok(Some((name, size, header_length)))
 }
 
+pub fn validate_file_name(name: &str) -> io::Result<()> {
+    if name.is_empty()
+        || name.len() > MAX_NAME_LENGTH
+        || name == "."
+        || name == ".."
+        || name.ends_with([' ', '.'])
+        || name.chars().any(|character| {
+            character.is_control()
+                || matches!(
+                    character,
+                    '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*'
+                )
+        })
+        || is_reserved_windows_name(name)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "file name is empty, too long, or contains invalid characters",
+        ));
+    }
+
+    Ok(())
+}
+
+fn is_reserved_windows_name(name: &str) -> bool {
+    let base = name
+        .split('.')
+        .next()
+        .unwrap_or(name)
+        .trim_end_matches([' ', '.'])
+        .to_ascii_uppercase();
+    matches!(
+        base.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{encode_header, parse_header};
+    use super::{encode_header, parse_header, validate_file_name};
 
     #[test]
     fn title_round_trips() {
@@ -75,5 +141,16 @@ mod tests {
     fn invalid_title_is_rejected() {
         assert!(parse_header(&[0, 0]).is_err());
         assert!(parse_header(&[0, 1, 0xff, 0, 0, 0, 0, 0, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn file_name_validation_rejects_paths() {
+        assert!(validate_file_name("report.txt").is_ok());
+        assert!(validate_file_name("../report.txt").is_err());
+        assert!(validate_file_name("folder\\report.txt").is_err());
+        assert!(validate_file_name("C:report.txt").is_err());
+        assert!(validate_file_name("CON.txt").is_err());
+        assert!(validate_file_name("report.txt.").is_err());
+        assert!(validate_file_name("").is_err());
     }
 }
